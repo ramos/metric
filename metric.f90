@@ -1,3 +1,26 @@
+!
+! PROGRAM to compute the metric in the space of solutions of the 
+!         Bogomolny equations of the Abelian Higgs Model.
+!
+! Copyright (C) 2006  Alberto Ramos <alberto@martin.ft.uam.es>
+!
+! This program is free software; you can redistribute it and/or modify
+! it under the terms of the GNU General Public License as published by
+! the Free Software Foundation; either version 2 of the License, or
+! (at your option) any later version.
+!
+! This program is distributed in the hope that it will be useful,
+! but WITHOUT ANY WARRANTY; without even the implied warranty of
+! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+! GNU General Public License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program; if not, write to the Free Software
+! Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+! USA
+! 
+
+! $ v. 1.0; Released: 10/01/2007; $
 
 Program Metrica 
 
@@ -5,17 +28,17 @@ Program Metrica
   USE Constants
   USE Geometry
   USE Error
-!  USE Perturbativo
-  USE FourierF
+  USE Fourier
   USE Bases
+  USE Time
 
   Integer, Parameter :: MaxOrder = 51
   Integer :: Nqs = 2, Norders = 20
 
   Integer :: Nterm = 20, Terminos(MaxOrder)
   Integer, Allocatable :: Multi(:)
-  Complex (kind=DPC), Allocatable :: C(:), g(:,:,:), Wzero(:)
-  Real (kind=DP) :: Dnorm
+  Complex (kind=DPC), Allocatable :: C(:), g(:,:,:), Wzero(:), WzeroRel(:)
+  Real (kind=DP) :: Dnorm, tbg, tnd, BCR, BCI
   Real (kind=DP), Allocatable :: Factor(:)
   Complex (kind=DPC) :: Wfac
   Complex (kind=DPC), Allocatable :: B(:,:) !->For ST2 
@@ -41,11 +64,15 @@ Program Metrica
      End Function Factorial
   End Interface
 
-  Write(stderr, *)'Input q, Norders, Nterm, dirbase and C(:)'
+  Write(stderr,*)
+  Write(stderr,*)'Stage 1: Reading input and needed data:'
+  Write(stderr,*)'======================================='
+
+  Read(*,*)Nstart1, Nstart2
   Read(*,*)Nqs, Norders, Nterm, dirbase
 
   ! Allocate space for all the components...
-  Allocate(C(Nqs), Wzero(Nqs))
+  Allocate(C(Nqs), Wzero(Nqs), WzeroRel(Nqs))
   Allocate(hf(Norders), Pf(Norders), deltaf(Norders), &
        & Acum2(Norders), Aparcial(Nqs), Powhf(Norders,Norders))
   Allocate(Factor(Norders), Multi(Norders))
@@ -53,25 +80,35 @@ Program Metrica
 
   CALL Init_Geometry(qq=Nqs)
 
-  Do I = 1, q
-     Read(*,'(2ES33.25)')C(I)
-     Write(stderr,'(1I4,2ES20.12)')I, C(I)
-  End Do
-  Do I = 1, q
+  Do I = 1, q-1
      Read(*,'(2ES33.25)')Wzero(I)
-     Write(stderr,'(1I4,2ES20.12)')I, Wzero(I)
+  End Do
+  
+  If (q > 1) Then
+     Wzero(q) = -Sum(Wzero(1:q-1))
+  Else
+     Wzero(q) = Cmplx(0.0_DP, 0.0_DP, kind=DPC)
+  End If
+  WzeroRel = Wzero
+  Do I = 1, q
+     Wzero(I) = l1/2.0_DP * &
+          & Cmplx(0.5_DP+Real(Wzero(I),kind=DP), &
+          &       taui*(0.5_DP+Aimag(Wzero(I))), kind=DPC)
   End Do
 
+  C = Cbase(Wzero)
   Dnorm = Sqrt(Sum(Abs(C(:))**2))
   C = C/Dnorm
 
-!!$  ! OJO!!!
-!!$  Wzero(1) = (0.0_DP,0.0_DP)
-!!$  Wzero(2) = (0.0_DP,0.0_DP)
-!!$  C = Cbase(Wzero)
-!!$  Write(0,*)'ZERO:', C
-
-  
+  Write(stderr,'(1A,1I4)')' Flux (a.k.a q, first chern class): ', q
+  Write(stderr,'(1A,1I7)')' Orders to compute: ', Norders
+  Write(stderr,'(1A,1I4)')' Number of terms used for the Fourier series: ', Nterm
+  Write(stderr,*)
+  Write(stderr,'(1A)')' Positions of the zeros (relative to the center of the Torus): '
+  Do I = 1, q
+     Write(stderr,'(2ES33.25)')WzeroRel(I)
+  End Do
+  Write(stderr,*)
 
   ! Set values to Terminos(51)
   Data Terminos /0, 1, 2, 3, 5, 7, 11, 15, 22, 30, 42, 56, 77, 101,&
@@ -80,11 +117,33 @@ Program Metrica
        & 12310, 14883, 17977, 21637, 26015, 31185, 37338, 44583, &
        & 53174, 63261, 75175, 89134, 105558, 124754, 147273, 173525, &
        & 204226/
-  
 
-  Write(0,*)
-  Write(0,*)'Stage 1: Calculating h, Factor:'
-  Write(0,*)'==============================='
+  ! Write a small summary in the dir, with date 
+  ! and other interesting things
+  Write(FileSave,'(1A)')'summary_metric.dat'
+  FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+
+  Open (Unit = 69, File = Trim(FileSave))
+
+  Write(69,'(1A)')'# '
+  Write(69,'(2A)')'# SUMMARY of computed data. ', &
+       & asctime(gettime())
+  Write(69,'(1A)')'# '
+  Write(69,'(1A,1I4)')'# Flux (a.k.a q, first chern class): ', q
+  Write(69,'(1A,1I7)')'# Orders computed: ', Norders
+  Write(69,'(1A,1I4)')'# Number of terms used for the Fourier series: ', Nterm
+  Write(69,*)
+  Write(69,'(1A)')'# Positions of the zeros (relative to the center of the Torus): '
+  Do I = 1, q
+     Write(69,'(2ES33.25)')WzeroRel(I)
+  End Do
+
+  Write(69,*)
+  Write(69,'(1A)')'# Values of C (position in moduli space in the coordinates of CP): '
+  Do I = 1, q
+     Write(69,'(1A2,2ES33.25)')'# ', C(I)
+  End Do
+  
 
   ! Init the fourier Series
   CALL Init_Serie(Chif, Nterm)
@@ -161,11 +220,63 @@ Program Metrica
      Powhf(1,I2) = hf(1) * Powhf(1,I2-1)
   End Do
   
+  Write(69,'(1A)')'# '
+  Write(69,'(1A)')'# Times of the computation (PART I):'
+  Write(69,'(1A)')'# '
+  ! If we have to read data from HD, its time to do it
+  If (Nstart1 > 1) Then
+     Do I = 2, Nstart1
+        CALL CPU_Time(tbg)
+        Write(FileSave,'(1A5,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)')'Pf:O=',I&
+             &,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        CALL Read_Serie(Pf(I), Trim(FileSave))
+        
+        Write(FileSave, '(1A9,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)')'factor:O=',I&
+             &,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        Open (Unit=99, File = FileSave)
+        Read(99,'(1ES33.25)')Factor(I)
+        Close(99)
+        
+        Write(FileSave,'(1A9,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)')'deltaf:O=',I&
+             &,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        CALL Read_Serie(Deltaf(I), Trim(FileSave))
+        
+        Write(FileSave,'(1A5,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)')'hf:O=',I&
+             &,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        CALL Read_Serie(hf(I), Trim(FileSave))
+
+        Powhf(I,1) = hf(I)
+        Do Npow = 2, Int((Norders-1)/I)
+           Powhf(I, Npow) = hf(I) * Powhf(I,Npow-1)
+        End Do
+
+        Acum2(I)%Coef = Cmplx(0.0_DP, kind=DPC)
+        Do J = 1, I-2
+           Acum2(I) = Acum2(I) + Factor(I-J)*Acum2(J+1)
+        End Do
+        Acum2(I) = (1.0_DP/Factor(1))*(Pf(I) - Acum2(I))
+        Acum2(I)%Coef(0,0) = Acum2(I)%Coef(0,0) - Factor(I)/Factor(1)
+
+        CALL CPU_Time(tnd)
+        Write(stderr,'(1A,1I5)')'Reading order: ', I
+        Write(69,'(1A,1I5,1A,1ES8.2,1A)')'Reading order: ', I, &
+             & '(',tnd-tbg,'sec)'
+     End Do
+  End If
+
+  Write(stderr,*)
+  Write(stderr,*)'Stage 2: Computing h, Factor:'
+  Write(stderr,*)'==============================='
   
   ! Now start the iteration until Norders is reached.
-  Do I = 2, Norders
+  Do I = Max(2,Nstart1+1), Norders
      ! This loop must be done for each
      ! order. I is the order.
+     CALL CPU_Time(tbg)
      Write(FileMulti, '(1A15,1I2.2,1A4)')'combinatoria/O=', I-1, '.dat'     
      Open (Unit = 34, File = Trim(FileMulti), ACTION="READ")     
      
@@ -193,11 +304,6 @@ Program Metrica
      End Do
      
      Pf(I) = Prod
-!!$     Write(FileSave,'(1A5,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)')'Pf:O=',I&
-!!$          &,':Nterm=',Nterm ,':flux=',q,'.dat'
-!!$     FileSave = Trim(Trim(dirbase) // '/' // FileSave)
-!!$     CALL Save_Serie(Pf(I), Trim(FileSave))
-     
      Prod = Prod * Chif
      
      Factor(I) = -Real(Prod%Coef(0,0),kind=DP) / Real(Chif%Coef(0,0),kind=DP)
@@ -243,14 +349,19 @@ Program Metrica
         Powhf(I, Npow) = hf(I) * Powhf(I,Npow-1)
      End Do
      
-     Write(stderr, *)I, Deltaf(I)%Coef(0,0)
+     CALL CPU_Time(tnd)
+     Write(stderr, '(1A,1I5,1A)')'Order: ', I, ' done'
+     Write(69,'(1A,1I5,1A,1ES8.2,1A)')'Order: ', I, &
+          & ' done (',tnd-tbg,'sec)'
   End Do
 
 
-
+  Write(69,'(1A)')'# '
+  Write(69,'(1A)')'# Times of the computation (PART II):'
+  Write(69,'(1A)')'# '
 
   Write(0,*)
-  Write(0,*)'Stage 2: Calculating \dot H_i, B_i:'
+  Write(0,*)'Stage 3: Computing \dot H_i, B_i:'
   Write(0,*)'==================================='
   
 
@@ -284,7 +395,6 @@ Program Metrica
      End Do
   End Do
   
-  !    Write(*,*)'D:', l1, l2, q, taui, C(1), C(2)
   Do J1 = 1, q
      Do J2 = 1, q
         Lcont = Lcont + Conjg(C(J1))*C(J2) * Lf(J1,J2)
@@ -335,13 +445,40 @@ Program Metrica
      CALL Save_Serie(Hdot(J1,1), Trim(FileSave))
   End Do
   
+  ! Read the computed things
+  Do I = 2, Nstart2
+     CALL CPU_Time(tbg)
+     Do J1 = 1, q
+        Write(FileSave,'(1A6,1I1.1,1A3,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)') &
+             & 'hdotf:',J1,':O=',I,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        CALL Read_Serie(Hdot(J1,I), Trim(FileSave))
+        
+        Write(FileSave,'(1A3,1I1.1,1A3,1I2.2,1A7,1I2.2,1A6,1I1.1,1A4)') &
+             & 'Bf:',J1,':O=',I-1,':Nterm=',Nterm ,':flux=',q,'.dat'
+        FileSave = Trim(Trim(dirbase) // '/' // FileSave)
+        Open (Unit=99, File = FileSave, Action = "READ")
+        Read(99,'(1ES33.25)')BCR
+        Read(99,'(1ES33.25)')BCI
+        Close(99)
+
+        B(J1,I-1) = Cmplx(BCR, BCI, kind=DPC)
+     End Do
+     CALL CPU_Time(tnd)
+     Write(stderr,'(1A,1I5)')'Reading order: ', I
+     Write(69,'(1A,1I5,1A,1ES8.2,1A)')'Reading order: ', I, &
+          & '(',tnd-tbg,'sec)'
+  End Do
+
+
   ! Now we have to iterate the perturbative process.
   ! In each loop we calculate:
   !  - Hdot(:,I)
   !  - B(:,I-1)
   ! and save them to HD.
-  Do I = 2, Norders
-     
+  Do I = Max(2, Nstart2), Norders
+     CALL CPU_Time(tbg)
+
      Do J1 = 1, q
         Aux%Coef = (0.0_DP,0.0_DP)
         
@@ -360,7 +497,7 @@ Program Metrica
         B(J1,I-1) = Aux%Coef(0,0)/( Factor(1)*Lcont%Coef(0,0) )
         
         Aux = Aux - Factor(1)*B(J1,I-1)*Lcont
-        Write(stderr,*)I, Aux%Coef(0,0)!, Aux%Coef(1,1)
+!        Write(stderr,*)I, Aux%Coef(0,0)!, Aux%Coef(1,1)
         
         Do Nx = -Nterm, Nterm
            Do Ny = -Nterm, Nterm
@@ -391,12 +528,20 @@ Program Metrica
         Close(99)
         
      End Do
-     
+
+     CALL CPU_Time(tnd)
+     Write(stderr, '(1A,1I5,1A)')'Order: ', I, ' done'
+     Write(69,'(1A,1I5,1A,1ES8.2,1A)')'Order: ', I, &
+          & ' done (',tnd-tbg,'sec)'
   End Do
   
   Write(0,*)
-  Write(0,*)'Stage 3: Calculating the metric:'
+  Write(0,*)'Stage 4: Computing the metric:'
   Write(0,*)'================================'
+
+  Write(69,'(1A)')'# '
+  Write(69,'(1A)')'# Times of the computation (PART III):'
+  Write(69,'(1A)')'# '
   
 
   ! Allocate and init things for stg3
@@ -417,23 +562,24 @@ Program Metrica
 
 
   ! Calculates the metric
-  Do I = 1, Norders
+  Do I = Max(1,Nstart2), Norders
+     CALL CPU_Time(tbg)
      Do J1 = 1, q
         Do J2 = 1, q
            Aux = Pf(I)*Lf(J1,J2)
            g(I,J1,J2) = Aux%Coef(0,0)
-           if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'1: ', Aux%Coef(0,0)
+!           if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'1: ', Aux%Coef(0,0)
            Aux = - Pf(I)*B(J2,0)*Lmc(J1)
-           if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'2: ', Aux%Coef(0,0)
+!           if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'2: ', Aux%Coef(0,0)
            g(I,J1,J2) = g(I,J1,J2) + Aux%Coef(0,0)
            Do M = 1, I-1
               Aux = - Pf(I-M) * B(J2,M) * Lmc(J1) 
               g(I,J1,J2) = g(I,J1,J2) + Aux%Coef(0,0)
-              if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'3: ', Aux%Coef(0,0)
+!              if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'3: ', Aux%Coef(0,0)
               Aux = - Pf(I-M) * Hdot(J2,M) * Lmc(J1)
               g(I,J1,J2) = g(I,J1,J2) + Aux%Coef(0,0)
-              if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'4&
-                   &: ', Aux%Coef(0,0)
+!              if ((J1*J2 == 1).and.(I==2)) Write(0,'(1A3,2ES33.25)')'4&
+!                   &: ', Aux%Coef(0,0)
            End Do
            
 !           g(I,J1,J2) = g(I,J1,J2) + Aux%Coef(0,0)
@@ -449,11 +595,16 @@ Program Metrica
         Write(99,'(100ES33.25)')(g(I,I1,J), J = 1, q)
      End Do
      Close(99)
+     CALL CPU_Time(tnd)
+     Write(stderr, '(1A,1I5,1A)')'Order: ', I, ' done'
+     Write(69,'(1A,1I5,1A,1ES8.2,1A)')'Order: ', I, &
+          & ' done (',tnd-tbg,'sec)'
   End Do
 
-  Write(*,'(8ES33.25,500ES33.25)')Wzero(1), C(1), &
-       & C(2), C(2)/C(1), g(:,1,1) + g(:,2,2)
+!  Write(*,'(8ES33.25,500ES33.25)')Wzero(1), C(1), &
+!       & C(2), C(2)/C(1), g(:,1,1) + g(:,2,2)
 
+  Close(69)
   
   Stop
 End Program Metrica
