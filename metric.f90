@@ -123,9 +123,15 @@ Program Metrica
   Write(FileSave,'(1A)')'summary_metric.dat'
   FileSave = Trim(Trim(dirbase) // '/' // FileSave)
 
-  Open (Unit = 69, File = Trim(FileSave))
+  If (Nstart2 > 1) Then
+     Open (Unit = 69, File = Trim(FileSave), &
+          & Action="WRITE", Position="APPEND")
+  Else
+     Open (Unit = 69, File = Trim(FileSave), &
+          & Action="READWRITE", Position="REWIND")
+  End If
 
-  Write(69,'(1A)')'# '
+  Write(69,'(1A)')'#################################################### '
   Write(69,'(2A)')'# SUMMARY of computed data. ', &
        & asctime(gettime())
   Write(69,'(1A)')'# '
@@ -143,7 +149,7 @@ Program Metrica
   Do I = 1, q
      Write(69,'(1A2,2ES33.25)')'# ', C(I)
   End Do
-  
+  Write(69,'(1A)')'#################################################### '
 
   ! Init the fourier Series
   CALL Init_Serie(Chif, Nterm)
@@ -601,8 +607,9 @@ Program Metrica
           & ' done (',tnd-tbg,'sec)'
   End Do
 
-!  Write(*,'(8ES33.25,500ES33.25)')Wzero(1), C(1), &
-!       & C(2), C(2)/C(1), g(:,1,1) + g(:,2,2)
+  Write(69,'(1A)')"# "
+  Write(69,'(2A)')"# END of run. ", asctime(gettime())
+  Write(69,'(1A)')"# "
 
   Close(69)
   
